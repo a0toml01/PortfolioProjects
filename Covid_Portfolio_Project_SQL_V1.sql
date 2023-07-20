@@ -64,7 +64,7 @@ Where continent is not null
 Group by date
 order by 1,2
 
---overall global death rate
+--Overall global death rate
 Select  SUM(new_cases) as total_cases, SUM(cast(new_deaths as int)) as total_deaths, SUM(cast(new_deaths as int))/sum(new_cases)*100 as DeathPercentage
 From PortfolioProject..CovidDeaths$
 --Where location like '%states%'
@@ -95,7 +95,7 @@ Join PortfolioProject..CovidVaccinations$ vac
 	where dea.continent is not null
 	order by 2,3
 
---USE CTE
+--Using CTE
 
 With PopvsVac (Continent, Location, Date, Population, New_Vaccinations, RollingPeopleVaccinated)
 as 
