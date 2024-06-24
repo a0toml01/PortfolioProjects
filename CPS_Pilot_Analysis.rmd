@@ -1,0 +1,518 @@
+---
+title: "CPS_Pilot_Analysis"
+output: html_document
+date: "2024-06-14"
+---
+##### The purpose of this analysis is to compare the risk of secondary occurrences of physical child abuse among the intervention groups (pilot program and standard program) while controlling for age, race, minority status and household risk factors. 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###### LOAD LIBRARIES
+```{r Libraries, warning=FALSE, results=FALSE, message=FALSE, error=FALSE}
+library(survival)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ggmosaic)
+library(cobalt)
+library(MatchIt)
+library(vcd)
+library(sjPlot)
+library(sjstats)
+library(sjmisc)
+library(labelled)
+library(gtsummary)
+library(webshot2)
+library(Hmisc)
+library(survminer)
+```
+
+###### LOAD DATA
+```{r Load data}
+load("~/Biostatistics/AbuseStudy.Rdata")
+```
+
+###### EXAMINE DATA FRAME
+```{r Data frame summary/}
+summary(dat)
+glimpse(dat)
+```
+###### CHECK FOR MISSING VALUES
+```{r}
+sum(is.na(dat))
+```
+##### Table 1 summarizes the overall characteristics of all enrolled participants and characteristics by the intervention subgroups, Pilot (n=222) and Standard (n=210).  
+
+###### PARTICIPANT CHARACTERISTICS TABLE
+```{r Participant Characteristics Table}
+ dat %>% select(event,  program, age, sex, minority, poverty, subst.abuse, crim.hist, first)  %>%
+     tbl_summary(
+      by = program,
+      statistic = list(all_continuous()~"{mean} ({sd})",
+                       all_categorical()~"{n} ({p}%)"),
+      type = list(age ~ "continuous"),
+      label = list(age ~ "Age (years)")
+    ) %>%
+    modify_header(
+      #label = "**Variable**",
+      all_stat_cols()~"**{level}**<br>n = {n} ({style_percent(p, digits=1)}%)"
+    )%>%
+    add_overall(
+      last = F,
+      col_label = "**All**<br>n = {N}"
+    )%>%
+    modify_caption("Table 1: Participant Characteristics By Invervention") %>%
+    bold_labels()
+```
+
+
+###### FACTORIZE VARIABLES (FOR CONTINGENCY TABLES)
+```{r Factorizing variables}
+dat$minorityf <- factor(dat$minority, labels = c("Non-minority", "Minority"))
+var_label(dat$minorityf) <- "Minority"
+dat$povertyf <- factor(dat$poverty, labels = c("No", "Yes"))
+var_label(dat$povertyf) <- "Poverty"
+dat$substf <- factor(dat$subst.abuse, labels = c("No","Yes"))
+var_label(dat$substf) <- "Substance Abuse"
+dat$crimhistf <- factor(dat$crim.hist, labels = c("No","Yes"))
+var_label(dat$crimhistf) <- "Criminial History"
+dat$firstf <- factor(dat$first, labels = c("No", "Yes"))
+var_label(dat$firstf) <- "First Contact with CPS"
+```
+
+
+###### APPLY VARIABLE ATTRIBUTE LABLES TO WIDE-FORM DATA SET
+```{r Variable labels}
+var_label(dat$event) <- "Event"
+var_label(dat$program) <- "Program"
+var_label(dat$age) <- "Age"
+var_label(dat$sex) <- "Sex"
+var_label(dat$minority) <- "Minority"
+var_label(dat$poverty) <- "Family Below Poverty Threshold"
+var_label(dat$subst.abuse) <- "Substance Abuse in Household"
+var_label(dat$crim.hist) <- "Criminal History in Household"
+var_label(dat$first) <- "First CPS Contact"
+var_label(dat$region) <- "Region"
+var_label(dat$agency) <- "Agency"
+```
+
+#### ASSESSING TREATMENT BALANCE AMONG COVARIATES  
+
+#### CONTINUOUS VARIABLES:AGE  
+
+##### A two-sample t-test determined that mean age did not significantly differ between intervention groups.  
+```{r t-test: age}
+t.test(age~program, data = dat)
+```
+##### The distribution of age by intervention group is visualized in a density plot and side-by-sidebboxplots which show similar distribution among groups.  
+
+###### AGE-PROGRAM DENSITY PLOT  
+```{r Age-program density plot}
+ggplot(dat, aes(x=age, color = program))+
+  geom_density() +
+  labs(x = "Age", y = "Density", color = "Program")+
+  theme(
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size=10)
+  )
+```
+
+
+###### BOXPLOT-AGE BY PROGRAM  
+```{r Age x program boxplot}
+ageboxplot <- ggplot(dat, aes(x=program, y=age, fill=program))+
+  geom_boxplot() +  ggtitle("Age by Program") +
+  labs(x = "Program", y="Age") +
+  theme(legend.position = "none") +
+  theme(
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size=10)
+  ) 
+
+ageboxplot
+```
+
+#### DICHOTOMOUS VARIABLES  
+
+##### Pearson’s Chi-squared tests were performed to assess the homogeneity of the distribution of the dichotomous variables among the intervention groups.  
+
+####### PROGRAM X SEX
+```{r chisq 1}
+dat %>%
+  tbl_cross(
+    row =sex,
+    col = program,
+  ) %>%
+  add_p(
+    pvalue_fun = ~style_pvalue(.x, digits = 3)
+  ) %>%
+  modify_column_hide(stat_0) %>%
+  bold_labels()
+```
+
+###### PROGRAM X MINORITY
+```{r chisq 2}
+dat %>%
+  tbl_cross(
+    row = minorityf,
+    col = program,
+  ) %>%
+  add_p(
+    pvalue_fun = ~style_pvalue(.x, digits = 3)
+  ) %>%
+  modify_column_hide(stat_0) %>%
+  bold_labels()
+```
+
+###### PROGRAM X POVERTY
+```{r chisq 3}
+dat %>%
+  tbl_cross(
+    row = povertyf,
+    col = program,
+  ) %>%
+  add_p(
+    pvalue_fun = ~style_pvalue(.x, digits = 3)
+  ) %>%
+  modify_column_hide(stat_0) %>%
+  bold_labels()
+```
+###### PROGRAM X SUBSTANCE ABUSE IN HOUSEHOLD
+```{r chisq 4}
+dat %>%
+  tbl_cross(
+    row = substf,
+    col = program,
+  ) %>%
+  add_p(
+    pvalue_fun = ~style_pvalue(.x, digits = 3)
+  ) %>%
+  modify_column_hide(stat_0) %>%
+  bold_labels()
+```
+
+###### PROGRAM X CRIMINAL HISTORY IN HOUSEHOLD
+```{r chisq 5}
+dat %>%
+  tbl_cross(
+    row = crimhistf,
+    col = program,
+  ) %>%
+  add_p(
+    pvalue_fun = ~style_pvalue(.x, digits = 3)
+  ) %>%
+  modify_column_hide(stat_0) %>%
+  bold_labels()
+```
+
+###### PROGRAM X FIRST CONTACT WITH CPS
+```{r chisq 6}
+dat %>%
+  tbl_cross(
+    row = firstf,
+    col = program,
+  ) %>%
+  add_p(
+    pvalue_fun = ~style_pvalue(.x, digits = 3)
+  ) %>%
+  modify_column_hide(stat_0) %>%
+  bold_labels()
+```
+##### The results of all Pearson’s Chi-squared tests were not statistically significant (p > .05).    
+
+##### Treatment groups were found to be balanced among the measured socio-demographic variables and household risk factor indicator variables.   
+
+#### VARIABLE EFFECT ON TIME TO EVENT (NON SURVIVAL CONTEXT)   
+###### BINARY LOGISTIC MODELS
+```{r}
+mod.base <- glm(event~1, data=dat[,3:11], family = "binomial")
+mod.prog1 <- update(mod.base,~.+program, data = dat) #p<.001
+summary(mod.prog1)
+mod.age1 <- update(mod.base,~.+age, data = dat) #p<.001
+summary(mod.age1)
+mod.sex1 <- update(mod.base,~.+sex, data = dat) #p = 0.394
+summary(mod.sex1)
+mod.min1 <- update(mod.base,~.+minority, data = dat) #p = 0.672
+summary(mod.min1)
+mod.pov1 <- update(mod.base,~.+poverty, data = dat) #p = .007
+summary(mod.pov1)
+mod.subst1 <- update(mod.base,~.+subst.abuse, data = dat) #p = .307
+summary(mod.subst1)
+mod.ch1 <- update(mod.base,~.+crim.hist, data = dat) #p = .002
+summary(mod.ch1)
+mod.firstCPS1 <- update(mod.base,~.+first, data = dat) #p=.004
+summary(mod.firstCPS1)
+```
+
+###### MAIN EFFECTS BINARY LOGISTIC MODEL(EXCL REGION, AGENCY) & SUMMARY TABLE
+```{r main effects binary log reg}
+mod <- glm(event~., data = dat[,3:11], family = "binomial")
+summary(mod)
+
+
+```
+###### LOGISTIC REGRESSION MAIN EFFECTS MODEL SUMMARY TABLE 
+```{r main effects log reg model summary}
+tbl_regression(mod, exponentiate = T)%>%
+  modify_caption("Table 2: Logistic Regression-Main Effects Model Summary")
+```
+
+
+
+###### LOGISTIC REGRESSION MODEL-ANALYSIS OF VARIANCE
+```{r log reg aov}
+aov(mod)
+```
+
+###### GOODNESS OF FIT-DEVIANCE
+```{r GOF-Deviance}
+1-pchisq(q=mod$null.deviance - mod$deviance, df=length(coef(mod)))
+```
+
+###### COEFFICIENT COMPARISON
+```{r Log Reg Coef comparison}
+drop1(mod, test="Chisq")
+```
+
+###### RESPONSE RESIDUALS
+```{r Log reg response residuals}
+dat$rsp_resmod <- resid(mod, type = "response")
+mean(dat$rsp_resmod)
+```
+##### A density plot of the response residuals showed the residuals were somewhat bimodal, but otherwise normally distributed and are centered around zero.  
+
+###### DENSITY PLOT OF RESPONSE RESIDUALS  
+```{r log reg response residuals density plot}
+ggplot(dat, aes(x=rsp_resmod))+
+  geom_density()+
+  geom_vline(xintercept = 0, linetype="dotted", linewidth = 1.3)+
+  ggtitle("Logistic Regression Response Residuals-Main Effects Model")+
+  labs(x = "Response Residuals", y = "Density")+
+  geom_density(aes(x=rsp_resmod))+
+  theme(
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size=10)
+  )
+```
+
+##### The bimodal nature of the response residual distribution can also be seen in a normal QQ plot.    
+
+###### NORMAL QQ PLOT   
+```{r normal QQ plot-log reg model}
+res <- resid(mod)
+qqnorm(res)
+qqline(res)
+range(dat$age)
+```
+#### SURVIVAL ANALYSIS
+
+##### Cox regression analysis was used to assess which covariates were associated with longer time-to-event (i.e. which covariates were associated with reduced risk of occurrence of secondary child abuse events). A time-dependent covariate “outofhome” was defined based on the variables measuring removal from and return to the home. The variable is an indicator taking value 1 when the child is outside of the home and has been placed in foster care and 0 when the child is in the home.   
+
+##### CONSTRUCTING TIME-DEPENDENT DATA SET FOR COX MODEL     
+
+###### WIDE TO LONG/COUNTING FORMAT DATA FRAME TRANSFORMATION
+```{r wide to long transformation}
+dat.long <- data.frame(id=numeric(length=0), start=numeric(length=0), stop=numeric(length=0), 
+                       outofhome=numeric(length=0), event=numeric(length=0))
+for(i in 1:nrow(dat)) { 
+  start <- 0
+  stop <- numeric(length=0)
+  outofhome <- 0
+  event <- numeric(length=0)
+  if (dat$removal[i]==1) {
+    start <- c(start, dat$time.removal[i])
+    stop <- c(stop, dat$time.removal[i])
+    outofhome <- c(outofhome,1)
+    event <- c(event, 0)
+  }
+  if (dat$return[i]==1) {
+    start <- c(start, dat$time.return[i])
+    stop <- c(stop, dat$time.return[i])
+    outofhome <- c(outofhome,0)
+    event <- c(event, 0)
+  }
+  stop <- c(stop, dat$time[i])
+  event <- c(event, dat$event[i])
+  temp.frame <- data.frame(id=dat$id[i],start,stop,event,outofhome)
+  dat.long <- rbind(dat.long,temp.frame)
+}
+```
+
+
+###### MERGE DATA FRAMES ON ID 
+```{r merge dfs}
+dat.demo <- dat[,c(1,4:13)]
+dat.new <- merge(dat.long,dat.demo, on = "id") 
+```
+
+###### SURV OBJECT
+```{r surv object}
+abuse.surv <- Surv(dat.new$start, dat.new$stop, dat.new$event, type="counting")
+```
+
+##### A main effects model was built using the time to event (experiencing secondary instance of child abuse) as the response variable and the out of home indicaton, intervention program, socio-demographic variables, and indicator variables for household risk factors as predictor variables.  
+
+###### MAIN EFFECTS COX MODEL
+```{r main effects cox model}
+mod.cox.main <- coxph(abuse.surv~outofhome+program+age+sex+minority+
+                        poverty+subst.abuse+crim.hist+first, data=dat.new)
+summary(mod.cox.main)
+```
+##### A backward stepwise cox regression was used to determine risk factors of the response out of the candidate predictor variables included in the main effects model. At each step, variables were chosen based on Akaike information criterion (AIC).  
+
+###### BACKWARD STEPWISE VARIABLE SELECTION
+```{r backward stepwise selection-cox model vars}
+mod.cox.s <- step(mod.cox.main, scope = ~outofhome+program+age+sex+minority+poverty+subst.abuse
+                  +crim.hist+first, data=dat.new, direction = "backward")
+summary(mod.cox.s)
+cox.zph(mod.cox.s) #poverty violates PH assumption
+```
+##### This procedure reduced the predictor variables to the out of home indicator, age, minority race, poverty status, history of substance abuse, criminal history in the household, and whether the index event was the first contact with CPS. The Schoenfield test showed that the poverty status variable violated the proportional hazards assumption (p = .04) and was therefore used as a stratifying variable.    
+
+
+
+###### STRATIFY BY POVERTY
+```{r stratify by poverty}
+mod.povs <- coxph(abuse.surv~outofhome+program+age+minority+subst.abuse+crim.hist+first+strata(poverty), data=dat.new)
+summary(mod.povs)
+```
+
+###### TEST REMOVAL VS STRATIFICATION
+```{r test poverty var removal vs stratification}
+mod.cox.removepov <-  coxph(abuse.surv ~ outofhome + program + age + minority + 
+  subst.abuse + crim.hist + first, data = dat.new)
+summary(mod.cox.removepov)
+mod.cox.removepov$loglik
+mod.povs$loglik
+extractAIC(mod.cox.removepov)
+extractAIC(mod.povs) #lower AIC
+```
+
+##### Additionally, the model was stratified by both the region of the metropolitan
+area in which the index event occurred (North and South) and the agency to which the index
+event was reported (State or Local). I
+
+###### COX MOD STRATIFIED BY REGION
+```{r cox mod stratified by region}
+mod.cox.region <- update(mod.povs, ~.+strata(region))
+summary(mod.cox.region)
+anova(mod.cox.s, mod.cox.region)
+anova(mod.cox.s, mod.cox.region, test = "Chisq")
+mod.cox.region$loglik
+```
+
+###### COX MOD STRATIFIED BY AGENCY
+```{r cox mod stratified by agency}
+mod.cox.agency <- update(mod.povs, ~.+strata(agency))
+summary(mod.cox.agency)
+anova(mod.cox.s,mod.cox.agency, test = "Chisq")
+anova(mod.cox.region,mod.cox.agency)
+mod.cox.agency$loglik
+```
+
+###### COX MOD STRATIFIED BY REGION AND AGENCY
+```{r cox mod stratified by region and agency}
+mod.cox.RA <- update(mod.povs, ~.+strata(region)+strata(agency))
+summary(mod.cox.RA)
+anova(mod.cox.s, mod.cox.RA)
+mod.cox.RA$loglik
+anova(mod.povs, mod.cox.RA, test = "Chisq")
+```
+
+###### (RENAME)
+```{r rename final model}
+mod.cox.main <- update(mod.povs, ~.+strata(region)+strata(agency))
+summary(mod.cox.main)
+cox.zph(mod.cox.main)
+```
+
+##### Interactions between the intervention program and other covariates were examined by performing a likelihood ratio test comparing the model including the main effects of the intervention program, the covariate, and the interaction term of the intervention program and the covariate to the reduced model without the covariate and interaction term. The likelihood ratio tests were not significant for the interaction between program and out of home (p = .793), program and age (p = .538), program and sex (p = .681), program and minority race (p = .759), program and substance abuse (p = .971), program and criminal history (p = .235), or program and first contact with CPS (p = .793).  
+
+##### INTERACTIONS  
+###### PROGRAM X AGE
+```{r int 1}
+cox.int.age <- update(mod.cox.main, ~.+program*age)
+summary(cox.int.age)
+anova(mod.cox.main, cox.int.age)
+anova(mod.cox.main, cox.int.age, test = "Chisq")
+```
+
+###### PROGRAM X OUTOFHOME
+```{r int 2}
+cox.int.out <- update(mod.cox.main, ~.+program*outofhome)
+summary(cox.int.out)
+anova(mod.cox.main, cox.int.out)
+anova(mod.cox.main, cox.int.out, test = "Chisq")
+```
+
+###### PROGRAM X SEX
+```{r int 3}
+cox.int.sex <- update(mod.cox.main, ~.+program*sex)
+summary(cox.int.sex)
+anova(mod.cox.main, cox.int.sex)
+anova(mod.cox.main, cox.int.sex, test = "Chisq")
+```
+
+###### PROGRAM X MINORITY
+```{r int 4}
+cox.int.min <- update(mod.cox.main, ~.+program*minority)
+summary(cox.int.min)
+anova(mod.cox.main, cox.int.min)
+anova(mod.cox.main, cox.int.min, test = "Chisq")
+```
+
+###### PROGRAM X SUBST.ABUSE
+```{r int 5}
+cox.int.subst <- update(mod.cox.main, ~.+program*subst.abuse)
+summary(cox.int.subst)
+anova(mod.cox.main,cox.int.subst)
+anova(mod.cox.main, cox.int.subst, test = "Chisq")
+```
+
+###### PROGRAM X CRIMINAL HISTORY
+```{r int 6}
+cox.int.crim <- update(mod.cox.main, ~.+program*crim.hist)
+summary(cox.int.crim)
+anova(mod.cox.main,cox.int.crim)
+anova(mod.cox.main, cox.int.crim, test = "Chisq")
+```
+
+###### PROGRAM X FIRST CONTACT WITH CPS
+```{r int 7}
+cox.int.first <- update(mod.cox.main, ~.+program*first)
+summary(cox.int.first)
+anova(mod.cox.main,cox.int.first)
+anova(mod.cox.main, cox.int.first, test = "Chisq")
+```
+
+##### The full model includes the following covariates: out of home indicator, intervention program, age, minority race, indicator of substance abuse in the household, indicator of criminal history in the household, indicator of whether the index event was the first contact with CPS, and the following stratifying variables: poverty, region, and agency.  
+
+###### MODEL SUMMARY
+```{r Final cox model summary}
+tbl_regression(mod.cox.main, exponentiate = T)%>%
+  modify_caption("Table 3: Time-Dependent Cox Model Summary<br>Stratified by Poverty, Region, and Agency")
+```
+
+
+```{r  include=FALSE}
+#levels for predictor variables?
+#newdat <- data.frame(program=levels(dat.new$program), outofhome = 0, age = 0, minority = 0, subst.abuse = 0, chrim.hist = 0, first = 0)
+#survfit(abuse.surv~program, data = newdat)
+```
+##### Based on the results of the model summary, the intervention program was a highly significant predictor of experiencing a secondary occurrence of abuse (p < .001). Children enrolled in the Standard intervention program were twice as likely on average to experience secondary abuse events compared to children enrolled in the Pilot intervention program while holding all other covariates constant.Age and indication that the index event was the first CPS contact for the child were also associated with lower risk of secondary occurrences of abuse. For each additional year of age, the risk of secondary occurrence of abuse decreased by 19% on average while holding all other covariates constant (HR = 0.81, [95% CI 0.76, 0.85]). Children for whom the index event was the first CPS contact were 36% less likely to experience secondary occurrences of abuse on average while holding all other covariates constant (HR = 0.64, [95% CI 0.49, 0.84]).
+
+
+###### SURVIVAL & CUMULATIVE HAZARD PLOTS BY PROGRAM
+```{r Survival & Hazard Plots}
+progfit <- survfit(abuse.surv~dat.new$program)
+ggsurvplot(progfit, data=dat.new, ggtheme = theme_bw(), legend.title=element_blank()) 
+ggsurvplot(progfit, data=dat.new, ggtheme = theme_bw(), fun = "cumhaz",
+           axis.title = element_text(size=14),
+           axis.text = element_text(size = 12),
+           legend.title=element_blank() 
+)
+```
+
+
+
