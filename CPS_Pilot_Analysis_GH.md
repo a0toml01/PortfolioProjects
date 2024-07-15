@@ -5627,5 +5627,5 @@ ggsurvplot(progfit, data=dat.new, ggtheme = theme_bw(), fun = "cumhaz",
            legend.title=element_blank() 
 )
 ```
-![Survival Plot](Survival & Hazard Plots-1.png)
+![Survival Plot]([Survival & Hazard Plots-1.png](https://github.com/a0toml01/PortfolioProjects/blob/ac067b6661f5162d8b758c0a8670907fabbea50b/Survival%20%26%20Hazard%20Plots-1.png))
 ![](CPS_Pilot_Analysis_GH_files/figure-gfm/Survival%20&%20Hazard%20Plots-2.png)<!-- -->
